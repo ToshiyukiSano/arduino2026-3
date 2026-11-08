@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>サーボ操作ページ（第3回）</title>
+<!--
+  サーボ操作ページ（Arduino入門 第3回）【新規作成の教材・実機未検証】
+  ・配布：GitHub の arduino2026-3 から「Code → Download ZIP」→ 右クリック「すべて展開」。
+    展開したフォルダの index.html を、PC の Google Chrome で開く（ファイルとして開く）。
+  ・インターネットにつながっていなくても動く作り（外部のライブラリを読み込まない）。
+  ・Bluetooth の設定画面でのペアリングは不要。このページの「Bluetoothで接続」を押し、
+    Chrome が出す一覧から、自分の機器（NGS-01〜NGS-11）を選ぶ。
+  ・送るのは1文字だけ：L＝左、C＝中央、R＝右（dai3_2_servo_ble と同じ UUID・同じ文字）。
+  ・角度は Arduino のプログラムで決まる。画面の角度は、Arduino からの返事を表示している。
+-->
+<style>
+  :root { --ink:#1f2a44; --sub:#4b5565; --line:#c9d1e0; --soft:#eef2f8; --blue:#2b5daa; --ok:#1b7f4b; --ng:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"BIZ UDPGothic","Meiryo","Hiragino Sans",sans-serif; color:var(--ink); background:#fff; }
+  main { max-width: 980px; margin: 0 auto; padding: 18px 18px 40px; }
+  h1 { font-size: 30px; margin: 0 0 14px; }
+  h2 { font-size: 22px; margin: 0 0 10px; }
+  .card { border:2px solid var(--line); border-radius:14px; padding:14px 18px; margin-bottom:16px; }
+  .num { display:inline-block; min-width:1.6em; height:1.6em; line-height:1.6em; border-radius:50%; background:var(--ink); color:#fff; text-align:center; margin-right:8px; font-size:20px; }
+  button { font: inherit; cursor:pointer; border-radius:12px; border:3px solid var(--ink); background:#fff; color:var(--ink); }
+  button:disabled { opacity:.3; cursor:not-allowed; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+  #connect { font-size:26px; font-weight:bold; padding:14px 26px; background:var(--blue); border-color:var(--blue); color:#fff; }
+  #disconnect { font-size:20px; padding:10px 18px; }
+  #status { font-size:28px; font-weight:bold; padding:14px 18px; border:4px dashed var(--ink); border-radius:12px; margin-top:12px; display:flex; gap:12px; align-items:center; }
+  #status .sym { font-size:34px; width:44px; text-align:center; }
+  #status.ok { border-style:solid; border-color:var(--ok); color:var(--ok); }
+  #status.ng { border-color:var(--ng); color:var(--ng); }
+  .dirs { display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; }
+  .dir { font-size:34px; font-weight:bold; padding:22px 8px; min-height:120px; }
+  .dir small { display:block; font-size:17px; font-weight:normal; color:var(--sub); margin-top:6px; }
+  .dir.sent { background:var(--ink); color:#fff; }
+  .dir.sent small { color:#dfe5f0; }
+  .info { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-top:14px; }
+  .box { border:2px solid var(--line); border-radius:10px; padding:10px 14px; font-size:22px; }
+  .box b { display:block; font-size:17px; color:var(--sub); font-weight:normal; margin-bottom:4px; }
+  #msg { font-size:20px; font-weight:bold; min-height:1.4em; }
+  #msg.ng { color:var(--ng); } #msg.ng::before { content:"⚠ "; }
+  #msg.ok { color:var(--ok); }
+  .note { font-size:16px; color:var(--sub); margin:8px 0 0; }
+  details { font-size:16px; color:var(--sub); }
+  #log { font-family:"BIZ UDGothic",monospace; font-size:14px; background:var(--soft); border-radius:8px; padding:8px; height:120px; overflow:auto; white-space:pre-wrap; }
+  @media (max-width: 700px) { .dirs { grid-template-columns: 1fr; } .info { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<h1>サーボ操作ページ（第3回）</h1>
+
+<div class="card">
+  <h2><span class="num">1</span>Arduino とつなぐ</h2>
+  <div class="row">
+    <button id="connect">Bluetoothで接続</button>
+    <button id="disconnect" disabled>切断</button>
+  </div>
+  <div id="status" role="status" aria-live="polite"><span class="sym" id="statusSym">■</span><span id="statusText">未接続：「Bluetoothで接続」を押してください</span></div>
+  <p class="note">一覧から、自分の番号の機器（紙に書いた機器名。NGS-01〜NGS-11）を選びます。Bluetooth の設定画面でのペアリングは不要です。</p>
+</div>
+
+<div class="card">
+  <h2><span class="num">2</span>ボタンで動かす</h2>
+  <div class="dirs">
+    <button class="dir" data-cmd="L" disabled>◀ 左<small>送る文字：L</small></button>
+    <button class="dir" data-cmd="C" disabled>● 中央<small>送る文字：C</small></button>
+    <button class="dir" data-cmd="R" disabled>右 ▶<small>送る文字：R</small></button>
+  </div>
+  <div class="info">
+    <div class="box"><b>送った指示</b><span id="sent">—</span></div>
+    <div class="box"><b>Arduino からの返事</b><span id="reply">—</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <div id="msg">メッセージ：—</div>
+  <details><summary>記録（先生用）</summary><div id="log"></div></details>
+</div>
+</main>
+
+<script>
+'use strict';
+// dai3_2_servo_ble と同じ番号（変更しない）
+const NAME_PREFIX  = 'NGS-';
+const SERVICE_UUID = 'e5969935-3a7c-4236-9516-9cd2c60c2c6d';
+const COMMAND_UUID = '1c2fb868-731c-4916-bbc4-952cb7d5133a';
+const STATUS_UUID  = 'a483820f-fee4-499b-b366-738eeb482acb';
+const DIR_NAME = { L: '左', C: '中央', R: '右' };
+
+const $ = (id) => document.getElementById(id);
+let device = null, commandChar = null, statusChar = null, connecting = false;
+let writing = Promise.resolve();
+
+function log(t) { const el = $('log'); el.textContent = new Date().toLocaleTimeString('ja-JP') + '  ' + t + '\n' + el.textContent.slice(0, 4000); }
+function msg(t, cls) { $('msg').textContent = 'メッセージ：' + t; $('msg').className = cls || ''; }
+function connected() { return !!(device && device.gatt && device.gatt.connected && commandChar); }
+
+function refresh() {
+  const c = connected();
+  $('connect').disabled = c || connecting;
+  $('disconnect').disabled = !c;
+  document.querySelectorAll('.dir').forEach(b => b.disabled = !c);
+  const st = $('status');
+  if (c) {
+    st.className = 'ok'; $('statusSym').textContent = '✓';
+    $('statusText').textContent = '接続済み：' + (device.name || '（名前なし）');
+  } else if (connecting) {
+    st.className = ''; $('statusSym').textContent = '…';
+    $('statusText').textContent = '接続中：一覧から自分の機器を選んでください';
+  } else {
+    st.className = ''; $('statusSym').textContent = '■';
+    $('statusText').textContent = '未接続：「Bluetoothで接続」を押してください';
+  }
+}
+
+// Arduino からの返事（例：「L:0:NGS-01」）
+function onStatus(e) {
+  const s = new TextDecoder().decode(e.target.value).trim();
+  if (!s) return;
+  log('Arduino：' + s);
+  const p = s.split(':');
+  if (p.length >= 3 && DIR_NAME[p[0]]) {
+    $('reply').textContent = DIR_NAME[p[0]] + '（' + p[1] + '°）　' + p.slice(2).join(':');
+  } else {
+    $('reply').textContent = s;
+  }
+}
+
+function onDisconnected() {
+  log('切断されました');
+  commandChar = null;
+  if (statusChar) { statusChar.removeEventListener('characteristicvaluechanged', onStatus); statusChar = null; }
+  document.querySelectorAll('.dir').forEach(b => b.classList.remove('sent'));
+  msg('切断されました。もう一度つなぐときは「Bluetoothで接続」を押してください');
+  refresh();
+}
+
+async function connect() {
+  if (connecting || connected()) return;
+  if (!('bluetooth' in navigator)) { msg('このブラウザでは Bluetooth が使えません。PC の Google Chrome で開いてください', 'ng'); return; }
+  connecting = true; refresh();
+  try {
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: NAME_PREFIX }, { services: [SERVICE_UUID] }],
+      optionalServices: [SERVICE_UUID]
+    });
+    if (device && device !== dev) device.removeEventListener('gattserverdisconnected', onDisconnected);
+    device = dev;
+    device.removeEventListener('gattserverdisconnected', onDisconnected);
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    const cmd = await service.getCharacteristic(COMMAND_UUID);
+    const st = await service.getCharacteristic(STATUS_UUID);
+    st.addEventListener('characteristicvaluechanged', onStatus);
+    await st.startNotifications();
+    commandChar = cmd; statusChar = st;
+    writing = Promise.resolve();
+    try { const v = await st.readValue(); onStatus({ target: { value: v } }); } catch (e) { log('状態を読めませんでした：' + e.message); }
+    log('接続：' + device.name);
+    msg('接続しました（' + device.name + '）。紙に書いた自分の機器名と同じか確かめてください', 'ok');
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') msg('機器が選ばれませんでした。もう一度「Bluetoothで接続」を押してください');
+    else msg('接続できませんでした。Arduino の電源（LED に番号が出ているか）と機器名を確かめて、もう一度押してください', 'ng');
+    log('接続失敗：' + (e && e.message));
+    try { if (device && device.gatt.connected) device.gatt.disconnect(); } catch (e2) {}
+    commandChar = null; statusChar = null;
+  } finally {
+    connecting = false; refresh();
+  }
+}
+
+// 指示を送る（1つずつ順番に送る）
+function send(c) {
+  const ch = commandChar;
+  if (!ch) return Promise.reject(new Error('未接続'));
+  const p = writing.then(() => ch.writeValueWithResponse(new Uint8Array([c.charCodeAt(0)])));
+  writing = p.catch(() => {});
+  return p;
+}
+
+document.querySelectorAll('.dir').forEach(b => b.onclick = async () => {
+  const c = b.dataset.cmd;
+  try {
+    await send(c);
+    document.querySelectorAll('.dir').forEach(x => x.classList.toggle('sent', x === b));
+    $('sent').textContent = DIR_NAME[c] + '（' + c + '）';
+    log('送信：' + c);
+    msg('「' + DIR_NAME[c] + '」の指示を送りました', 'ok');
+  } catch (e) {
+    msg('送れませんでした。接続を確かめてください', 'ng');
+    log('送信失敗：' + (e && e.message));
+  }
+});
+
+$('connect').onclick = connect;
+$('disconnect').onclick = () => { if (device && device.gatt.connected) device.gatt.disconnect(); };
+
+// 開いた環境の確認
+(function checkEnv() {
+  const p = [];
+  const path = decodeURIComponent(location.pathname || '');
+  if (location.protocol === 'file:' && /\.zip[\\/]/i.test(path)) p.push('ZIPの中から開いています。右クリック→「すべて展開」してから、展開したフォルダの index.html を開いてください');
+  if (!('bluetooth' in navigator)) p.push('このブラウザでは Bluetooth が使えません。PC の Google Chrome で開いてください');
+  if (p.length) msg(p.join('／'), 'ng');
+})();
+refresh();
+</script>
+</body>
+</html>
